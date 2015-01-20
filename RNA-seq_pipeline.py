@@ -49,6 +49,7 @@ input_dir = options.raw_seq_dir
 output_dir = options.output_dir
 paired_end = options.paired_end
 stranded = options.stranded
+trim_reads = options.trim_reads
 
 genome_ref = options.genome_ref
 genome_ref_fa = options.genome_ref_fa
@@ -355,7 +356,7 @@ else:  # if single-end reads
                       paired1, paired2)
 
 
-if paired_end:
+if paired_end and trim_reads:
     @transform(sequences, 
                regex('(.+\/)?(.+?)\_R1.fastq\.gz'),
                add_inputs(r'\1\2_R2.fastq.gz'), 
@@ -384,7 +385,7 @@ if paired_end:
             (paired1, paired2, out1, unpaired1, out2, unpaired2, parameters)
         runStageCheck('trimReads', flagFile, logger, options, java_tmp,
                       trimmomatic_path, paired, trim_log, trimmomatic_input)
-else:
+elif trim_reads:
     @transform(sequences, 
                regex('(.+\/)?(.+?)\_R1.fastq\.gz'),
                [r'%s/\2_R1.trimmed-single.fastq.gz' % trimmed_dir, 
@@ -412,7 +413,7 @@ else:
 
 
 
-if paired_end:
+if paired_end and trim_reads:
     @transform(trimReads, 
                regex('(.+\/)?(.+?)\_R1.trimmed-paired.fastq\.gz'),
                [r'%s/\2_R1.trimmed-paired_fastqc.zip' % fastqc_post_trim_dir,
@@ -427,7 +428,7 @@ if paired_end:
         out1, out2, flagFile = outputs    
         runStageCheck('fastQC', flagFile, logger, options,
                       fastqc_post_trim_dir, paired1, paired2)
-else:
+elif trim_reads:
     @transform(trimReads, 
                regex('(.+\/)?(.+?)\_R1.trimmed-single.fastq\.gz'),
                [r'%s/\2_R1.trimmed-single_fastqc.zip' % fastqc_post_trim_dir,
@@ -443,22 +444,37 @@ else:
         runStageCheck('fastQC', flagFile, logger, options,
                       fastqc_post_trim_dir, paired1, paired2)
 
-
-@follows(fastQC)
-@merge(fastQCPostTrim, 
-       [r'%s/FastQC_summary.html' % qc_summary_dir,
-        r'%s/FastQC_basic_statistics_summary.html' % qc_summary_dir,
-        r'%s/FastQC_summary.txt' % qc_summary_dir, 
-        r'%s/fastqcSummary.Success' % qc_summary_dir])
-def fastQCSummary(inputs, outputs):
-    """
-    Parse results from fastQC analysis
-    """
-    qc_summary, basic_statistics_summary, summary_txt, flagFile = outputs
-    paired = "paired" if paired_end else "single"
-    runStageCheck('fastQCSummary', flagFile, logger, options, 
-                  fastqc_parse_script, fastqc_dir, fastqc_post_trim_dir,
-                  qc_summary, basic_statistics_summary, paired, summary_txt)
+if trim_reads:
+    @follows(fastQC)
+    @merge(fastQCPostTrim, 
+           [r'%s/FastQC_summary.html' % qc_summary_dir,
+            r'%s/FastQC_basic_statistics_summary.html' % qc_summary_dir,
+            r'%s/FastQC_summary.txt' % qc_summary_dir, 
+            r'%s/fastqcSummary.Success' % qc_summary_dir])
+    def fastQCSummary(inputs, outputs):
+        """
+        Parse results from fastQC analysis
+        """
+        qc_summary, basic_statistics_summary, summary_txt, flagFile = outputs
+        paired = "paired" if paired_end else "single"
+        runStageCheck('fastQCSummary', flagFile, logger, options, 
+                      fastqc_parse_script, fastqc_dir, fastqc_post_trim_dir,
+                      qc_summary, basic_statistics_summary, paired, summary_txt)
+else:
+    @merge(fastQC, 
+           [r'%s/FastQC_summary.html' % qc_summary_dir,
+            r'%s/FastQC_basic_statistics_summary.html' % qc_summary_dir,
+            r'%s/FastQC_summary.txt' % qc_summary_dir, 
+            r'%s/fastqcSummary.Success' % qc_summary_dir])
+    def fastQCSummary(inputs, outputs):
+        """
+        Parse results from fastQC analysis
+        """
+        qc_summary, basic_statistics_summary, summary_txt, flagFile = outputs
+        paired = "paired" if paired_end else "single"
+        runStageCheck('fastQCSummary', flagFile, logger, options, 
+                      fastqc_parse_script, fastqc_dir, fastqc_post_trim_dir,
+                      qc_summary, basic_statistics_summary, paired, summary_txt)
 
 
 @files([genome_ref_fa, gene_ref],
@@ -487,26 +503,45 @@ def buildTranscriptomeIndex(inputs, outputs):
 tophat_files = []
 rg_tags = {}
 for samp in sample_list:
-    trimmed_files = samp.get_trimmed_filenames(paired_end)
-    input_files = ["%s/known.rev.1.bt2" % transcriptome_dir] + trimmed_files
     output_files = ["%s/%s/accepted_hits.bam" % (tophat_raw_dir, samp.name),
                     "%s/%s.accepted_hits.bam" % (tophat_dir, samp.name),
                     "%s/%s.tophat.Success" % (tophat_raw_dir, samp.name)]
     paired1 = []
     paired2 = []
-    for i in trimmed_files:
-        if paired_end:
-            if "_R1.trimmed-paired.fastq.gz" in os.path.basename(i):
-                paired1.append(i)
-            elif "_R2.trimmed-paired.fastq.gz" in os.path.basename(i):
-                paired2.append(i)
-        else:
-            if "_R1.trimmed-single.fastq.gz" in os.path.basename(i):
-                paired1.append(i)
-                paired2 = ["False"]
-    match = re.search('(.+\/)?SM_([A-Za-z0-9-.]+)_RP_([A-Za-z0-9-.]+)_' \
-                      'LB_([A-Za-z0-9-.]+)_ID_([A-Za-z0-9-.]+)_L([0-9]+)_' \
-                      'R.\.trimmed-(paired|single)\.fastq\.gz', input_files[1])
+    if trim_reads:
+        trimmed_files = samp.get_trimmed_filenames(paired_end)
+        input_files = ["%s/known.rev.1.bt2" % transcriptome_dir] + trimmed_files
+        for i in trimmed_files:
+            if paired_end:
+                if "_R1.trimmed-paired.fastq.gz" in os.path.basename(i):
+                    paired1.append(i)
+                elif "_R2.trimmed-paired.fastq.gz" in os.path.basename(i):
+                    paired2.append(i)
+            else:
+                if "_R1.trimmed-single.fastq.gz" in os.path.basename(i):
+                    paired1.append(i)
+                    paired2 = ["False"]
+        match = re.search('(.+\/)?SM_([A-Za-z0-9-.]+)_RP_([A-Za-z0-9-.]+)_' \
+                          'LB_([A-Za-z0-9-.]+)_ID_([A-Za-z0-9-.]+)_L([0-9]+)_' \
+                          'R.\.trimmed-(paired|single)\.fastq\.gz', 
+                          input_files[1])
+    else:
+        untrimmed_files = samp.files
+        input_files = ["%s/known.rev.1.bt2" % transcriptome_dir] \
+                          + untrimmed_files
+        for i in untrimmed_files:
+            if paired_end:
+                if "_R1.fastq.gz" in os.path.basename(i):
+                    paired1.append(i)
+                elif "_R2.fastq.gz" in os.path.basename(i):
+                    paired2.append(i)
+            else:
+                if "_R1.fastq.gz" in os.path.basename(i):
+                    paired1.append(i)
+                    paired2 = ["False"]
+        match = re.search('(.+\/)?SM_([A-Za-z0-9-.]+)_RP_([A-Za-z0-9-.]+)_' \
+                          'LB_([A-Za-z0-9-.]+)_ID_([A-Za-z0-9-.]+)_L([0-9]+)_' \
+                          'R.\.fastq\.gz', input_files[1])
     rgsm = match.group(2) + "_RP-" + match.group(3)   # sample name + replicate
     rglb = match.group(4)                             # library name
     rgid = match.group(5) + "_L" + match.group(6)     # id + lane
@@ -520,22 +555,37 @@ for samp in sample_list:
 # for i in tophat_files: print i
 
 
-
-@follows(buildTranscriptomeIndex)
-@follows(trimReads)
-@files(tophat_files)
-def tophatAlign(inputs, outputs, extra_parameters):
-    """
-    Align reads in fastq file using TopHat
-    """
-    input_files = inputs
-    acceptedHits, linkFile, flagFile = outputs
-    paired1, paired2, rgsm, rglb, rgid, rgpl = extra_parameters
-    sample_dir = os.path.dirname(acceptedHits)
-    transcriptome_index = "%s/known" % transcriptome_dir
-    runStageCheck('tophatAlign', flagFile, logger, options, tophat_script, 
-                  paired1, paired2, sample_dir, gene_ref, genome_ref,
-                  transcriptome_index, rgsm, rglb, rgid, rgpl, linkFile)
+if trim_reads:
+    @follows(buildTranscriptomeIndex)
+    @follows(trimReads)
+    @files(tophat_files)
+    def tophatAlign(inputs, outputs, extra_parameters):
+        """
+        Align reads in fastq file using TopHat
+        """
+        input_files = inputs
+        acceptedHits, linkFile, flagFile = outputs
+        paired1, paired2, rgsm, rglb, rgid, rgpl = extra_parameters
+        sample_dir = os.path.dirname(acceptedHits)
+        transcriptome_index = "%s/known" % transcriptome_dir
+        runStageCheck('tophatAlign', flagFile, logger, options, tophat_script, 
+                      paired1, paired2, sample_dir, gene_ref, genome_ref,
+                      transcriptome_index, rgsm, rglb, rgid, rgpl, linkFile)
+else:
+    @follows(buildTranscriptomeIndex)
+    @files(tophat_files)
+    def tophatAlign(inputs, outputs, extra_parameters):
+        """
+        Align reads in fastq file using TopHat
+        """
+        input_files = inputs
+        acceptedHits, linkFile, flagFile = outputs
+        paired1, paired2, rgsm, rglb, rgid, rgpl = extra_parameters
+        sample_dir = os.path.dirname(acceptedHits)
+        transcriptome_index = "%s/known" % transcriptome_dir
+        runStageCheck('tophatAlign', flagFile, logger, options, tophat_script, 
+                      paired1, paired2, sample_dir, gene_ref, genome_ref,
+                      transcriptome_index, rgsm, rglb, rgid, rgpl, linkFile)
 
 
 @transform(tophatAlign, 
@@ -799,8 +849,7 @@ def alignmentStats(inputs, outputs):
 
 
 @follows(alignmentStats)
-@follows(fastQC)
-@follows(fastQCPostTrim)
+@follows(fastQCSummary)
 @merge(rnaSeQC, 
        [r'%s/qc_summary.html' % qc_summary_dir, 
         r'%s/qcSummary.Success' % qc_summary_dir])

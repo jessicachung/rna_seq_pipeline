@@ -36,6 +36,7 @@ stageDefaults = {
         "tophat-gcc/2.0.8",
         "cufflinks-gcc/2.1.1",
         "bwa-intel/0.7.5a",
+        "R-gcc/3.1.0",
     ],
     "manager": "slurm",
 }
@@ -155,19 +156,16 @@ stages = {
         "command": "R --no-save --args %samples %comparisons %plain_text " \
                    "%rdata %annotate < %combine > %stdout 2> %stderr",
         "walltime": "30:00",
-        "modules": ["R-intel/2.15.3"],
     },
     "voom": {
         "command": "R --no-save --args %rdata %outdir %voom < %script " \
                    "> %stdout 2> %stderr",
         "walltime": "30:00",
-        "modules": ["R-intel/2.15.3"]
     },
     "edgeR": {
         "command": "R --no-save --args %rdata %outdir %edgeR < %script " \
                    "> %stdout 2> %stderr",
         "walltime": "30:00",
-        "modules": ["R-intel/2.15.3"]
     },
 }
 

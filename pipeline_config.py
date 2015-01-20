@@ -76,11 +76,15 @@ comparisons_csv = "/path_to_project/fastq_files/comparisons.csv"
 # The output directory.
 output_dir = "/path_to_project/results/"
 
-# Sequencing platform for read group information.
-platform = "Illumina"
+# Trim adapter sequences and low quality reads before alignment with
+# Trimmomatic.
+trim_reads = True
 
 # If the experiment is paired-end or single-end: True (PE) or False (SE).
 paired_end = False
+
+# Sequencing platform for read group information.
+platform = "Illumina"
 
 # Whether the experiment is strand specific: "yes", "no", or "reverse".
 stranded = "no"
@@ -118,6 +122,7 @@ cuffdiff_mask_file = False
 #---------------------------------
 # TRIMMOMATIC PARAMETERS
 #---------------------------------
+# You can ignore these parameters if you've set trim_reads to False.
 # Parameters for Trimmomatic (a tool for trimming Illumina reads).
 # http://www.usadellab.org/cms/index.php?page=trimmomatic
 
@@ -141,7 +146,7 @@ simple_clip_threshold = 10
 extra_parameters = "LEADING:3 TRAILING:3 SLIDINGWINDOW:4:15 MINLEN:36"
 
 # Output Trimmomatic log file
-write_trimmomatic_log = True
+write_trimmomatic_log = False
 
 #---------------------------------
 # R PARAMETERS
