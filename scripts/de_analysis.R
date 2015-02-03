@@ -16,6 +16,8 @@ library(ggplot2)
 library(scales)
 library(gridExtra)
 library(xtable)
+# also need the RUVSeq library if you want to use RUV 
+# also need the biomaRt library if annotations are set to true
 
 args <- commandArgs(trailingOnly=TRUE)
 
@@ -29,6 +31,16 @@ mode <- args[3]
 mode
 
 voom <- ifelse(mode == "voom", TRUE, FALSE)
+
+# Use RUV in analysis (Requires the RUVSeq package)
+use.ruv <-FALSE
+
+# How many dimentions to use in RUV. Make sure you have enough degrees
+# of freedom.
+k <- 1
+
+# Use weights when using voom. Make sure you have enough degrees of freedom.
+use.weights <- TRUE
 
 # Number of genes to output to top_genes_c1_vs_c2.txt with annotations. Set
 # to Inf to output all genes.
@@ -280,7 +292,8 @@ system(paste("cp",comparison.csv.filename,"comparisons.csv"))
 y <- DGEList(counts=counts,group=condition)
 y$samples
 
-# Filter genes. Only include genes where expression in cpm (counts per million) #   is greater than 1 in at least two samples
+# Filter genes. Only include genes where expression in cpm (counts per million) 
+# is greater than 1 in at least two samples
 isexpr <- rowSums(cpm(y)>1) >= 2
 y <- y[isexpr,]
 y$samples$lib.size <- colSums(y$counts)
@@ -307,10 +320,10 @@ par(mar=c(9.1,4.1,4.1,2.1))
 # Boxplots of log(raw) and log(TMM normalised) gene counts
 # NB. Outliers are hidden
 boxplot(log.counts, outline=F, ylab="log raw gene count", 
-        main="Log raw counts", las=2, cex.axis=0.5)
+        main="Raw log-counts", las=2, cex.axis=0.5)
 
 boxplot(log.nc, outline=F, ylab="log TMM normalised gene count", 
-        main="Log TMM Normalised", las=2, cex.axis=0.5)
+        main="TMM-normalised log-counts", las=2, cex.axis=0.5)
 
 
 #####################################################################
@@ -366,18 +379,107 @@ cm
 
 
 #####################################################################
+## RUV  ### XXX
+
+if (use.ruv) {
+  
+  library(RUVSeq)
+  
+  ###################################################################
+  ## RUV using residuals
+  
+  # Residuals from negative binomial GLM regression of TMM-normalized
+  # counts on covariates of interest with edgeR
+  ruv.y <- estimateGLMCommonDisp(y, design)
+  ruv.y <- estimateGLMTagwiseDisp(ruv.y, design)
+  ruv.fit <- glmFit(ruv.y, design)
+  res <- residuals(ruv.fit, type="deviance")
+  # boxplot(res)
+  
+  neg.ctrl <- TRUE    # use all genes
+  RUVr.all <- RUVr(y$counts, neg.ctrl, k, res)
+  
+  W <- RUVr.all$W
+  print(W)
+  
+  ruv.y <- DGEList(RUVr.all$normalizedCounts)
+  ruv.y <- calcNormFactors(ruv.y, method="TMM")
+  ruv.nc <- cpm(ruv.y, normalized.lib.sizes=T)
+  ruv.log.nc <- log(ruv.nc + 1)
+  
+  gene.medians <- apply(ruv.log.nc,1,median)
+  boxplot(ruv.log.nc - gene.medians, outline=F, ylab="RLE",
+          main="RLE plot of RUV & TMM-normalised counts", las=2, cex.axis=0.5)
+  abline(h=0, lty=3)
+  
+#   ###################################################################
+#   ## RUV using x% of lowest DE genes as negative controls
+#   
+#   # Uncomment this block if you want to use RUVg instead of RUVr.
+#   # Don't use this or write your own code if you have multiple 
+#   # comparisons or covariates.
+#   
+#   neg.ctrl.prop <- 0.5   # proportion of genes to be negative controls
+#   ruv.y <- estimateGLMCommonDisp(y, design)
+#   ruv.y <- estimateGLMTagwiseDisp(ruv.y, design)
+#   ruv.fit <- glmFit(ruv.y, design)
+#   lrt <- glmLRT(ruv.fit, contrast=cm[,colnames(cm)[1]])
+#   top <- topTags(lrt, n=Inf, adjust.method="BH", sort.by="p")$table
+#   neg.ctrl <- rownames(top)[floor(nrow(top) * (1 - neg.ctrl.prop)):nrow(top)]
+#   length(neg.ctrl)
+#   
+#   RUVg.all <- RUVg(y$counts, neg.ctrl, k)
+#   
+#   W <- RUVg.all$W
+#   W
+  
+  ###################################################################
+  ## Re-create design matrix and comparison matrix with W term
+  
+  if (n.covariates > 0) {
+    design.str <- "design <- model.matrix(~0+condition"
+    for (i in 1:n.covariates) {
+      covariate.str <- sprintf("c%d <- factor(covariates[,%d])", i, i)
+      eval(parse(text=covariate.str))
+      design.str <- paste(design.str, sprintf("+c%d", i), sep="")
+    }
+    design.str <- paste(design.str, "+W)", sep="")
+    print(design.str)
+    eval(parse(text=design.str))
+  } else {
+    design <- model.matrix(~0+condition+W)
+  }
+  colnames(design)[1:length(levels(condition))] <- levels(condition)
+  print(design)
+  
+  print(cm.str)
+  eval(parse(text=cm.str))
+  print(cm)
+  
+}
+
+
+#####################################################################
 ## Run Voom or edgeR
 
 if (voom) {
 
   ###################################################################
   ## Run Voom and plot plots
-  
+
   print("Running Voom analysis")
-  v <- voom(y, design, plot=TRUE)
-  fit <- lmFit(v, design)
-  fit2 <- contrasts.fit(fit, cm)
-  fit2 <- eBayes(fit2)
+  if (use.weights) {
+    print("Using voomWithQualityWeights")
+    v <- voomWithQualityWeights(y, design=design, plot=TRUE)
+    fit <- lmFit(v, design)
+    fit2 <- contrasts.fit(fit, cm)
+    fit2 <- eBayes(fit2)
+  } else {
+    v <- voom(y, design, plot=TRUE)
+    fit <- lmFit(v, design)
+    fit2 <- contrasts.fit(fit, cm)
+    fit2 <- eBayes(fit2)
+  }
   dev.off()
   
   print(summary(decideTests(fit2)))
@@ -454,7 +556,8 @@ if (voom) {
   print("Running edgeR analysis")
   # estimate dispersion across genes
   y <- estimateGLMCommonDisp(y,design)
-  y <- estimateGLMTrendedDisp(y,design)
+  y <- estimateGLMTrendedDisp(y,design)   # Comment this out if you want to 
+                                          # use CommonDisp estimate instead
   y <- estimateGLMTagwiseDisp(y,design)
   
   # visualise dispersion
