@@ -27,6 +27,9 @@
 #    tasks up to date.
 #  - manager: "pbs" or "slurm"
 
+# All end stages:
+#   ["fastQCSummary", "voom", "edgeR", "qcSummary", "cuffdiff", "cuffnorm"]
+
 pipeline = {
     "logDir": "log",
     "logFile": "pipeline_commands.log",
@@ -38,6 +41,7 @@ pipeline = {
     "rebuild": "fromstart",
     "manager": "slurm",
 }
+
 
 
 # This option specifies whether or not you are using VLSCI's Merri or Barcoo
@@ -114,9 +118,11 @@ gene_ref = "/vlsci/VR0002/shared/Reference_Files/Indexed_Ref_Genomes/TuxedoSuite
 # rrna_ref = "/vlsci/VR0002/shared/Reference_Files/rRNA/human_all_rRNA.fasta"
 rrna_ref = "/vlsci/VR0002/shared/jchung/human_reference_files/human_rRNA.list"
 
-# Optional tRNA and rRNA sequences to filter out in Cuffdiff (.gtf or .gff). 
+# Optional: transcripts to filter out in Cuffdiff (.gtf or .gff). It is 
+# recommended to include any annotated rRNA, mitochondrial transcripts, tRNA,
+# and other abundant transcripts you wish to ignore in your analysis.
 # Set as False if not provided.
-cuffdiff_mask_file = False
+cuffdiff_mask_file = "/vlsci/VR0002/shared/jchung/human_reference_files/rRNA_tRNA_chrM_without_prefix.gtf"
 
 
 #---------------------------------

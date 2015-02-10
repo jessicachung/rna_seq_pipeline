@@ -108,6 +108,10 @@ cufflinks_dir = os.path.join(output_dir, "cufflinks")
 mkDir(cufflinks_dir)
 cuffmerge_dir = os.path.join(output_dir, "cuffmerge")
 mkDir(cuffmerge_dir)
+cuffquant_dir = os.path.join(output_dir, "cuffquant")
+mkDir(cuffquant_dir)
+cuffnorm_dir = os.path.join(output_dir, "cuffnorm")
+mkDir(cuffnorm_dir)
 cuffdiff_dir = os.path.join(output_dir, "cuffdiff")
 mkDir(cuffdiff_dir)
 htseq_dir = os.path.join(output_dir, "htseq_count")
@@ -165,6 +169,10 @@ class sample(object):
                        r'.trimmed-single.fastq.gz', os.path.basename(x))),
                        self.files)
 
+
+######################################################################
+## Parse samples
+######################################################################
 
 def print_heading(heading):
     print "#" * 80 + "\n## %s:" % heading.upper()
@@ -307,6 +315,10 @@ if no_replicates_warning:
     print "Warning: Lacking replicates for some conditions! " \
           "Some analyses in the pipeline will fail."
 
+
+######################################################################
+## Trimming and FastQC
+######################################################################
 
 @files([samples_csv,
         comparisons_csv],
@@ -477,6 +489,11 @@ else:
                       qc_summary, basic_statistics_summary, paired, summary_txt)
 
 
+
+######################################################################
+## Alignment
+######################################################################
+
 @files([genome_ref_fa, gene_ref],
        ["%s/known.rev.1.bt2" % transcriptome_dir, 
         "%s/buildIndex.Success" % transcriptome_dir])
@@ -494,7 +511,6 @@ def buildTranscriptomeIndex(inputs, outputs):
     runStageCheck('buildTranscriptomeIndex', flagFile, logger, options, 
                   index_script, seq, tmp_dir, transcriptome_dir, 
                   transcriptome_index, geneRef, genome_ref)
-
 
 
 # Get inputs for tophatAlign: 
@@ -615,6 +631,11 @@ def indexSortedBam(inputs, outputs):
     runStageCheck('indexBam', flagFile, logger, options, bamFile)
 
 
+
+######################################################################
+## QC branch
+######################################################################
+
 @transform(tophatAlign, 
            regex('(.+\/)?(.+?)/accepted_hits\.bam'), 
            add_inputs(r'\1\2/unmapped.bam'), 
@@ -732,6 +753,11 @@ def rnaSeQC(inputs, outputs, samp_name):
                   paired, samp, genome_ref_fa, gene_ref, rrna, sample_dir)
 
 
+
+######################################################################
+## Cufflinks branch
+######################################################################
+
 @follows(indexSortedBam)
 @transform(sortBam, 
            regex('(.+\/)?(.+?)\.accepted_hits\.sorted\.bam'),
@@ -771,7 +797,7 @@ def createCuffmergeFile(inputs, outputs):
         '%s/cuffmerge.Success' % cuffmerge_sub_dir])
 def cuffmerge(inputs, outputs):
     """
-    Create a single merged transcriptome annotation from all assemblies in 
+    Create a single merged transcriptome annotation from all assemblies in
     assembly.txt using cuffmerge
     """
     assemblies, _success = inputs
@@ -780,14 +806,37 @@ def cuffmerge(inputs, outputs):
                   genome_ref_fa, cuffmerge_sub_dir, assemblies)
 
 
+@follows(cuffmerge)
+@transform(sortBam, 
+           regex('(.+\/)?(.+?)\.accepted_hits\.sorted\.bam'),
+           [r'%s/\2/abundances.cxb' % cuffquant_dir,
+            r'%s/\2.cuffquant.Success' % cuffquant_dir])
+def cuffquant(inputs, outputs):
+    """
+    Create abundances.cxb files with Cuffquant. Requires Cufflinks v2.2.0 or
+    higher.
+    """
+    bamFile, _success = inputs
+    abundances, flagFile = outputs
+    outputDir = os.path.dirname(abundances)
+    mask = "-M %s" % cuffdiff_mask_file if cuffdiff_mask_file else ""
+    merged_gtf = "%s/merged.gtf" % cuffmerge_sub_dir
+    runStageCheck('cuffquant', flagFile, logger, options, outputDir, mask, 
+                  merged_gtf, bamFile)
+
+
 # Input files in the same group for Cuffdiff analysis
 cuffdiff_files = []
 for comparison in comparisons_list:
     c1_samples = map(lambda x: x.name, sample_dict[comparison[0]])
     c2_samples = map(lambda x: x.name, sample_dict[comparison[1]])
-    c1_files = map(lambda x: "%s/%s.accepted_hits.bam" % (tophat_dir, x),
+#     c1_files = map(lambda x: "%s/%s.accepted_hits.sorted.bam" % \
+#                    (tophat_dir, x), c1_samples)
+#     c2_files = map(lambda x: "%s/%s.accepted_hits.sorted.bam" % \
+#                    (tophat_dir, x), c2_samples)
+    c1_files = map(lambda x: "%s/%s/abundances.cxb" % (cuffquant_dir, x),
                    c1_samples)
-    c2_files = map(lambda x: "%s/%s.accepted_hits.bam" % (tophat_dir, x),
+    c2_files = map(lambda x: "%s/%s/abundances.cxb" % (cuffquant_dir, x),
                    c2_samples)
     label = analysis_name + "_" + "_vs_".join(comparison)
     input_files = ["%s/merged.gtf" % cuffmerge_sub_dir] + c1_files + c2_files
@@ -801,21 +850,60 @@ for comparison in comparisons_list:
 # for i in cuffdiff_files: print i
 
 
-@follows(cuffmerge)
+@follows(cuffquant)
 @files(cuffdiff_files)
 def cuffdiff(inputs, outputs, extras):
     """
     Identify differentially expressed genes in each group using Cuffdiff.
     """
-    merged_gtk = inputs[0]
+    merged_gtf = inputs[0]
     output_de, flagFile = outputs
     c1_files, c2_files, c1_label, c2_label = extras
     labels = c1_label + "," + c2_label
     outputDir = os.path.dirname(output_de)
     mask = "-M %s" % cuffdiff_mask_file if cuffdiff_mask_file else ""
     runStageCheck('cuffdiff', flagFile, logger, options, mask, outputDir,
-                  labels, merged_gtk, c1_files, c2_files)
+                  labels, merged_gtf, c1_files, c2_files)
 
+
+cuffnorm_files = []
+cuffnorm_labels = []
+cuffnorm_samples = []
+input_files = ["%s/merged.gtf" % cuffmerge_sub_dir]
+for condition in sample_dict:
+    condition_samples = map(lambda x: x.name, sample_dict[condition])
+    condition_files = map(lambda x: "%s/%s/abundances.cxb" % (cuffquant_dir, x),
+                          condition_samples)
+    input_files = input_files + condition_files
+    cuffnorm_labels.append(condition)
+    cuffnorm_samples.append(",".join(condition_files))
+output_files = ["%s/genes.fpkm_table" % cuffnorm_dir,
+                "%s/cuffnorm.Success" % cuffnorm_dir]
+extra_parameters = [",".join(cuffnorm_labels)] + cuffnorm_samples
+cuffnorm_files.append([input_files, output_files, extra_parameters])
+
+# print_heading("cuffnorm files")       
+# for i in cuffnorm_files: print i
+
+
+@follows(cuffquant)
+@files(cuffnorm_files)
+def cuffnorm(inputs, outputs, extras):
+    """
+    Run Cuffnorm to get normalised expression values.
+    """
+    merged_gtf = inputs[0]
+    output_fpkm, flagFile = outputs
+    labels = extras[0]
+    cxb_files = " ".join(extras[1:])
+    runStageCheck('cuffnorm', flagFile, logger, options, cuffnorm_dir, labels,
+                  merged_gtf, cxb_files)    
+
+
+
+######################################################################
+## R analysis branch
+######################################################################
 
 @transform(tophatAlign, 
            regex('(.+\/)?(.+?)/accepted_hits\.bam'), 
@@ -829,39 +917,6 @@ def sortBamByName(inputs, outputs):
     output, flagFile = outputs
     output = output[:-4] 
     runStageCheck('sortBamByName', flagFile, logger, options, bamFile, output)
-
-
-@transform(sortBamByName, 
-           regex('(.+\/)?(.+?)\.accepted_hits\.sortedByName\.bam'), 
-           add_inputs(r'%s/\2/unmapped.bam' % tophat_raw_dir), 
-           [r'%s/\2.alignmentStats.txt' % alignment_stats_dir, 
-            r'%s/\2.alignmentStats.Success' % alignment_stats_dir])
-def alignmentStats(inputs, outputs):
-    """
-    Count the number of reads which had unique alignments, the number of
-    reads which had multiple alignments, and the number of unmapped reads
-    """
-    [bamFile, _success], unmappedBam = inputs
-    output, flagFile = outputs
-    paired = "paired" if paired_end else "single"
-    runStageCheck('alignmentStats', flagFile, logger, options, 
-                  alignment_stats_script, bamFile, unmappedBam, output, paired)
-
-
-@follows(alignmentStats)
-@follows(fastQCSummary)
-@merge(rnaSeQC, 
-       [r'%s/qc_summary.html' % qc_summary_dir, 
-        r'%s/qcSummary.Success' % qc_summary_dir])
-def qcSummary(inputs, outputs):
-    """
-    Parse results from QC analysis
-    """
-    qc_summary, flagFile = outputs
-    paired = "paired" if paired_end else "single"
-    runStageCheck('qcSummary', flagFile, logger, options, qc_parse_script, 
-                  fastqc_dir, fastqc_post_trim_dir, alignment_stats_dir,
-                  rnaseqc_dir, qc_summary, paired)
 
 
 @transform(sortBamByName, 
@@ -972,8 +1027,48 @@ def edgeR(inputs, outputs):
 
 
 
+######################################################################
+## QC branch
+######################################################################
 
-# Invoke the pipeline.
+@transform(sortBamByName, 
+           regex('(.+\/)?(.+?)\.accepted_hits\.sortedByName\.bam'), 
+           add_inputs(r'%s/\2/unmapped.bam' % tophat_raw_dir), 
+           [r'%s/\2.alignmentStats.txt' % alignment_stats_dir, 
+            r'%s/\2.alignmentStats.Success' % alignment_stats_dir])
+def alignmentStats(inputs, outputs):
+    """
+    Count the number of reads which had unique alignments, the number of
+    reads which had multiple alignments, and the number of unmapped reads
+    """
+    [bamFile, _success], unmappedBam = inputs
+    output, flagFile = outputs
+    paired = "paired" if paired_end else "single"
+    runStageCheck('alignmentStats', flagFile, logger, options, 
+                  alignment_stats_script, bamFile, unmappedBam, output, paired)
+
+
+@follows(alignmentStats)
+@follows(fastQCSummary)
+@merge(rnaSeQC, 
+       [r'%s/qc_summary.html' % qc_summary_dir, 
+        r'%s/qcSummary.Success' % qc_summary_dir])
+def qcSummary(inputs, outputs):
+    """
+    Parse results from QC analysis
+    """
+    qc_summary, flagFile = outputs
+    paired = "paired" if paired_end else "single"
+    runStageCheck('qcSummary', flagFile, logger, options, qc_parse_script, 
+                  fastqc_dir, fastqc_post_trim_dir, alignment_stats_dir,
+                  rnaseqc_dir, qc_summary, paired)
+
+
+
+######################################################################
+## Invoke the pipeline
+######################################################################
+
 pipelineOptions = options.pipeline
 endTasks = pipelineOptions['end']
 forcedTasks = pipelineOptions['force']

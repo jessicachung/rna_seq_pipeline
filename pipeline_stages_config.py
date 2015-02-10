@@ -34,7 +34,7 @@ stageDefaults = {
         "fastqc/0.10.1",
         "bowtie2-intel/2.1.0",
         "tophat-gcc/2.0.8",
-        "cufflinks-gcc/2.1.1",
+        "cufflinks-gcc/2.2.1",
         "bwa-intel/0.7.5a",
         "R-gcc/3.1.0",
     ],
@@ -112,7 +112,7 @@ stages = {
     },
     "rnaSeQC": {
         "command": "java -Xmx10g %tmp -jar %rnaseqc %paired -n 1000 -s %samp " \
-                   "-r %genome_ref -t %gene_ref %rrna_ref -o %outDir",
+                   "-r %genome_ref -t %gene_ref %rrna_ref -o %outdir",
         "walltime": "1:00:00",
         "memInGB": 16
     },
@@ -127,6 +127,17 @@ stages = {
         "walltime": "2:00:00",
         "memInGB": 32,
         "queue": "smp"
+    },
+    "cuffquant": {
+        "command": "cuffquant -o %outdir -p 8 %mask %gtf %bam",
+        "walltime": "2:00:00",
+        "memInGB": 32,
+        "queue": "smp"
+    },
+    "cuffnorm": {
+        "command": "cuffnorm -o %outdir -p 1 -L %labels %merged_gtf %samples",
+        "walltime": "1:00:00",
+        "memInGB": 16,
     },
     "cuffdiff": {
         "command": "cuffdiff %mask -o %outdir -p 8 -L %labels -u %merged_gtf " \
