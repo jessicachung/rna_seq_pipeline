@@ -274,13 +274,6 @@ TopVarianceHeatmap <- function(data, heatmap.output, numPositions=1000) {
 
 load(count.rdata)
 
-# Check if annotations available
-if (length(annotations) == 0) {
-  annotate <- FALSE
-} else {
-  annotate <- TRUE
-}
-
 # Make a copy of the csv files in the output directory
 system(paste("cp",sample.csv.filename,"samples.csv"))
 system(paste("cp",comparison.csv.filename,"comparisons.csv"))
@@ -379,7 +372,7 @@ cm
 
 
 #####################################################################
-## RUV  ### XXX
+## RUV
 
 if (use.ruv) {
   

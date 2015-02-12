@@ -48,7 +48,6 @@ platform = options.platform
 input_dir = options.raw_seq_dir
 output_dir = options.output_dir
 paired_end = options.paired_end
-stranded = options.stranded
 trim_reads = options.trim_reads
 
 genome_ref = options.genome_ref
@@ -61,21 +60,9 @@ seed_mismatches = options.seed_mismatches
 palendrome_clip_threshold = options.palendrome_clip_threshold
 simple_clip_threshold = options.simple_clip_threshold
 trimmomatic_extra_parameters = options.extra_parameters
-annotation_dataset = options.annotation_dataset
+htseq_mode = options.htseq_mode
 
-html_index_script = options.html_index_script
-index_script = options.index_script
-tophat_script = options.tophat_script
-merge_tophat_script = options.merge_tophat_script
-fix_tophat_unmapped_reads_script = options.fix_tophat_unmapped_reads_script
-htseq_script = options.htseq_script
-qc_parse_script = options.qc_parse_script
-fastqc_parse_script = options.fastqc_parse_script
-alignment_stats_script = options.alignment_stats_script
-combine_and_annotate_script = options.combine_and_annotate_script
-de_analysis_script = options.de_analysis_script
-
-trimmomatic_path = options.trimmomatic_path
+trimmomatic_jar = options.trimmomatic_path
 reorder_sam_jar = options.reorder_sam_path
 mark_duplicates_jar = options.mark_duplicates_path
 rnaseqc_jar = options.rnaseqc_path
@@ -114,10 +101,12 @@ cuffnorm_dir = os.path.join(output_dir, "cuffnorm")
 mkDir(cuffnorm_dir)
 cuffdiff_dir = os.path.join(output_dir, "cuffdiff")
 mkDir(cuffdiff_dir)
-htseq_dir = os.path.join(output_dir, "htseq_count")
+htseq_dir = os.path.join(output_dir, "htseq_gene_counts")
 mkDir(htseq_dir)
-counts_dir = os.path.join(output_dir, "read_counts")
-mkDir(counts_dir)
+gene_counts_dir = os.path.join(output_dir, "gene_counts")
+mkDir(gene_counts_dir)
+exon_counts_dir = os.path.join(output_dir, "exon_counts")
+mkDir(exon_counts_dir)
 merged_dir = os.path.join(output_dir, "tophat_merged")
 mkDir(merged_dir)
 rnaseqc_dir = os.path.join(output_dir, "rnaseqc")
@@ -333,7 +322,7 @@ def makeIndexHtml(inputs, outputs):
     abs_comparison_csv_file = os.path.abspath(comparisons_csv)
     abs_output_dir = os.path.abspath(output_dir)
     runStageCheck('makeIndexHtml', flagFile, logger, options,
-                  html_index_script, analysis_name, abs_sample_csv_file,
+                  options.html_index_script, analysis_name, abs_sample_csv_file,
                   abs_comparison_csv_file, abs_output_dir, output_filename)
 
 
@@ -396,7 +385,7 @@ if paired_end and trim_reads:
         trimmomatic_input = "%s %s %s %s %s %s ILLUMINACLIP:%s" % \
             (paired1, paired2, out1, unpaired1, out2, unpaired2, parameters)
         runStageCheck('trimReads', flagFile, logger, options, java_tmp,
-                      trimmomatic_path, paired, trim_log, trimmomatic_input)
+                      trimmomatic_jar, paired, trim_log, trimmomatic_input)
 elif trim_reads:
     @transform(sequences, 
                regex('(.+\/)?(.+?)\_R1.fastq\.gz'),
@@ -421,7 +410,7 @@ elif trim_reads:
         trimmomatic_input = "%s %s ILLUMINACLIP:%s" % (paired1, out1,
                                                        parameters)
         runStageCheck('trimReads', flagFile, logger, options, java_tmp, 
-                      trimmomatic_path, paired, trim_log, trimmomatic_input)
+                      trimmomatic_jar, paired, trim_log, trimmomatic_input)
 
 
 
@@ -470,8 +459,9 @@ if trim_reads:
         qc_summary, basic_statistics_summary, summary_txt, flagFile = outputs
         paired = "paired" if paired_end else "single"
         runStageCheck('fastQCSummary', flagFile, logger, options, 
-                      fastqc_parse_script, fastqc_dir, fastqc_post_trim_dir,
-                      qc_summary, basic_statistics_summary, paired, summary_txt)
+                      options.fastqc_parse_script, fastqc_dir,
+                      fastqc_post_trim_dir, qc_summary,
+                      basic_statistics_summary, paired, summary_txt)
 else:
     @merge(fastQC, 
            [r'%s/FastQC_summary.html' % qc_summary_dir,
@@ -485,8 +475,9 @@ else:
         qc_summary, basic_statistics_summary, summary_txt, flagFile = outputs
         paired = "paired" if paired_end else "single"
         runStageCheck('fastQCSummary', flagFile, logger, options, 
-                      fastqc_parse_script, fastqc_dir, fastqc_post_trim_dir,
-                      qc_summary, basic_statistics_summary, paired, summary_txt)
+                      options.fastqc_parse_script, fastqc_dir,
+                      fastqc_post_trim_dir, qc_summary,
+                      basic_statistics_summary, paired, summary_txt)
 
 
 
@@ -509,7 +500,7 @@ def buildTranscriptomeIndex(inputs, outputs):
     transcriptome_index = "%s/known" % transcriptome_dir
     seq = sequences[0]
     runStageCheck('buildTranscriptomeIndex', flagFile, logger, options, 
-                  index_script, seq, tmp_dir, transcriptome_dir, 
+                  options.index_script, seq, tmp_dir, transcriptome_dir, 
                   transcriptome_index, geneRef, genome_ref)
 
 
@@ -584,9 +575,10 @@ if trim_reads:
         paired1, paired2, rgsm, rglb, rgid, rgpl = extra_parameters
         sample_dir = os.path.dirname(acceptedHits)
         transcriptome_index = "%s/known" % transcriptome_dir
-        runStageCheck('tophatAlign', flagFile, logger, options, tophat_script, 
-                      paired1, paired2, sample_dir, gene_ref, genome_ref,
-                      transcriptome_index, rgsm, rglb, rgid, rgpl, linkFile)
+        runStageCheck('tophatAlign', flagFile, logger, options, 
+                      options.tophat_script, paired1, paired2, sample_dir,
+                      gene_ref, genome_ref, transcriptome_index, rgsm, rglb,
+                      rgid, rgpl, linkFile)
 else:
     @follows(buildTranscriptomeIndex)
     @files(tophat_files)
@@ -599,9 +591,10 @@ else:
         paired1, paired2, rgsm, rglb, rgid, rgpl = extra_parameters
         sample_dir = os.path.dirname(acceptedHits)
         transcriptome_index = "%s/known" % transcriptome_dir
-        runStageCheck('tophatAlign', flagFile, logger, options, tophat_script, 
-                      paired1, paired2, sample_dir, gene_ref, genome_ref,
-                      transcriptome_index, rgsm, rglb, rgid, rgpl, linkFile)
+        runStageCheck('tophatAlign', flagFile, logger, options,
+                      options.tophat_script, paired1, paired2, sample_dir,
+                      gene_ref, genome_ref, transcriptome_index, rgsm, rglb,
+                      rgid, rgpl, linkFile)
 
 
 @transform(tophatAlign, 
@@ -649,8 +642,8 @@ def mergeTophat(inputs, outputs):
     output, flagFile = outputs
     sample_dir = os.path.dirname(originalFile)
     runStageCheck('mergeTophat', flagFile, logger, options, 
-                  merge_tophat_script, fix_tophat_unmapped_reads_script,
-                  sample_dir, output)
+                  options.merge_tophat_script, 
+                  options.fix_tophat_unmapped_reads_script, sample_dir, output)
 
 
 @transform(mergeTophat, 
@@ -902,7 +895,7 @@ def cuffnorm(inputs, outputs, extras):
 
 
 ######################################################################
-## R analysis branch
+## R differential gene expression analysis branch
 ######################################################################
 
 @transform(tophatAlign, 
@@ -911,7 +904,7 @@ def cuffnorm(inputs, outputs, extras):
             r'%s/\2.sortBamByName.Success' % tophat_dir])
 def sortBamByName(inputs, outputs):
     """
-    Sort BAM file by name
+    Sort BAM file by name.
     """
     originalFile, bamFile, _success = inputs
     output, flagFile = outputs
@@ -921,28 +914,45 @@ def sortBamByName(inputs, outputs):
 
 @transform(sortBamByName, 
            regex('(.+\/)?(.+?)\.accepted_hits\.sortedByName\.bam'),
-           [r'%s/\2.union_HTSeqCount.txt' % htseq_dir,
-            r'%s/\2.strictIntersect_HTSeqCount.txt' % htseq_dir,
+           [r'%s/\2.%s_HTSeqCount.txt' % (htseq_dir, htseq_mode),
             r'%s/\2.htseqCount.Success' % htseq_dir])
-def countReads(inputs, outputs):
+def countGeneReads(inputs, outputs):
     """
-    Count reads for each feature in GTF file.
+    Count reads for each gene feature in GTF file with HTSeq-count.
     """
-    bamFile, _success = inputs
-    unionFile, strictFile, flagFile = outputs
-    runStageCheck('countReads', flagFile, logger, options, htseq_script, 
-                  bamFile, gene_ref, unionFile, strictFile, stranded)
+    bam_file, _success = inputs
+    output_file, flagFile = outputs
+    runStageCheck('countGeneReads', flagFile, logger, options, bam_file, 
+                  htseq_mode, options.stranded, gene_ref, output_file)
 
 
-@merge(countReads, 
-       ['%s/%s_samples.csv' % (counts_dir, analysis_name),
-        '%s/%s_comparisons.csv' % (counts_dir, analysis_name),
-        r'%s/%s_counts.txt' % (counts_dir, analysis_name),
-        r'%s/%s_counts.RData' % (counts_dir, analysis_name),
-        r'%s/%s_counts.stdout' % (counts_dir, analysis_name),
-        r'%s/%s_counts.stderr' % (counts_dir, analysis_name),
-        r'%s/%s.combineAndAnnotate.Success' % (counts_dir, analysis_name)])
-def combineAndAnnotate(inputs, outputs):
+@files([],
+       ["%s/annotations.RData" % gene_counts_dir, 
+       "%s/getAnnotations.stdout" % gene_counts_dir,
+       "%s/getAnnotations.stderr" % gene_counts_dir,
+        "%s/getAnnotations.Success" % gene_counts_dir])
+def getAnnotations(inputs, outputs):
+    """
+    Fetch annotations from Ensembl using biomaRt.
+    """
+    output_file, annotations_stdout, annotations_stderr, flagFile = outputs
+    annotation_dataset = str(options.annotation_dataset)
+    runStageCheck('getAnnotations', flagFile, logger, options, 
+                  annotation_dataset, gene_counts_dir, 
+                  options.get_annotations_script, annotations_stdout,
+                  annotations_stderr)
+
+
+@follows(getAnnotations)
+@merge(countGeneReads, 
+       ['%s/%s_samples.csv' % (gene_counts_dir, analysis_name),
+        '%s/%s_comparisons.csv' % (gene_counts_dir, analysis_name),
+        r'%s/%s_counts.txt' % (gene_counts_dir, analysis_name),
+        r'%s/%s_counts.RData' % (gene_counts_dir, analysis_name),
+        r'%s/%s_counts.stdout' % (gene_counts_dir, analysis_name),
+        r'%s/%s_counts.stderr' % (gene_counts_dir, analysis_name),
+        r'%s/%s.combineAndAnnotate.Success' % (gene_counts_dir, analysis_name)])
+def combineGeneCounts(inputs, outputs):
     """
     Create csv files containing sample information and comparison information
     needed for edgeR and voom analysis. Combine feature counts from HTSeq into
@@ -964,8 +974,8 @@ def combineAndAnnotate(inputs, outputs):
         with open(sample_R_csv, 'w') as output_file:
             output_lines = []
             for smrp_name in sample_list:
-                htseq_count = "%s/%s.union_HTSeqCount.txt" % (htseq_dir, 
-                                                              smrp_name.name)
+                htseq_count = "%s/%s.%s_HTSeqCount.txt" % \
+                        (htseq_dir, smrp_name.name, htseq_mode)
                 if smrp_name.covariates:
                     output_lines.append(",".join([smrp_name.sm, htseq_count,
                             smrp_name.condition, 
@@ -987,14 +997,15 @@ def combineAndAnnotate(inputs, outputs):
     except:
         print "Error. Could not create file %s" % comparison_R_csv
         sys.exit(1)
-    annotation_dataset = str(options.annotation_dataset)
-    runStageCheck('combineAndAnnotate', flagFile, logger, options, 
+    annotation_data = "%s/annotations.RData" % gene_counts_dir
+    runStageCheck('combineGeneCounts', flagFile, logger, options, 
                   sample_R_csv, comparison_R_csv, plain_text_counts,
-                  rdata_counts, annotation_dataset, 
-                  combine_and_annotate_script, combine_stdout, combine_stderr)
+                  rdata_counts, annotation_data, 
+                  options.combine_gene_counts_script, combine_stdout,
+                  combine_stderr)
 
 
-@files(combineAndAnnotate, 
+@files(combineGeneCounts, 
        ['%s/voom.stdout' % voom_dir, 
         '%s/voom.stderr' % voom_dir, 
         '%s/voom.Success' % voom_dir])
@@ -1007,10 +1018,10 @@ def voom(inputs, outputs):
     voom_stdout, voom_stderr, flagFile = outputs
     mkDir(voom_dir)
     runStageCheck('voom', flagFile, logger, options, rdata_counts, voom_dir,
-                  "voom", de_analysis_script, voom_stdout, voom_stderr)
+                  "voom", options.de_analysis_script, voom_stdout, voom_stderr)
 
 
-@files(combineAndAnnotate, 
+@files(combineGeneCounts, 
        ['%s/edgeR.stdout' % edger_dir, 
         '%s/edgeR.stderr' % edger_dir, 
         '%s/edgeR.Success' % edger_dir])
@@ -1023,7 +1034,8 @@ def edgeR(inputs, outputs):
     edger_stdout, edger_stderr, flagFile = outputs
     mkDir(edger_dir)
     runStageCheck('edgeR', flagFile, logger, options, rdata_counts, edger_dir,
-                  "edgeR", de_analysis_script, edger_stdout, edger_stderr)
+                  "edgeR", options.de_analysis_script, edger_stdout,
+                  edger_stderr)
 
 
 
@@ -1045,7 +1057,8 @@ def alignmentStats(inputs, outputs):
     output, flagFile = outputs
     paired = "paired" if paired_end else "single"
     runStageCheck('alignmentStats', flagFile, logger, options, 
-                  alignment_stats_script, bamFile, unmappedBam, output, paired)
+                  options.alignment_stats_script, bamFile, unmappedBam, output,
+                  paired)
 
 
 @follows(alignmentStats)
@@ -1059,9 +1072,9 @@ def qcSummary(inputs, outputs):
     """
     qc_summary, flagFile = outputs
     paired = "paired" if paired_end else "single"
-    runStageCheck('qcSummary', flagFile, logger, options, qc_parse_script, 
-                  fastqc_dir, fastqc_post_trim_dir, alignment_stats_dir,
-                  rnaseqc_dir, qc_summary, paired)
+    runStageCheck('qcSummary', flagFile, logger, options,
+                  options.qc_parse_script, fastqc_dir, fastqc_post_trim_dir,
+                  alignment_stats_dir, rnaseqc_dir, qc_summary, paired)
 
 
 

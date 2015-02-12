@@ -1,4 +1,5 @@
 ######################################################################
+## Combine counts from HTSeq into one matrix
 ## Annotate genes using Ensembl BioMaRt
 ## Create CSV file of counts
 ## Set up factor of interest, covariates, and comparisons
@@ -10,7 +11,7 @@ sample.csv.filename <- args[1]
 comparison.csv.filename <- args[2]
 plain.text.counts <- args[3]
 rdata.counts <- args[4]
-biomart.dataset <- args[5]
+annotations.data <- args[5]
 
 print(args)
 
@@ -23,6 +24,14 @@ samples <- read.table(sample.csv.filename, header=FALSE,
 comparisons <- read.table(comparison.csv.filename, header=FALSE,
                           stringsAsFactors=FALSE, sep=",",
                           colClasses="character")
+load(annotations.data)
+
+# Check if annotations available
+if (length(annotations) == 0) {
+  annotate <- FALSE
+} else {
+  annotate <- TRUE
+}
 
 ######################################################################
 ## Set up conditions and covariates
@@ -44,7 +53,7 @@ if (n.covariates > 0) {
 }
 
 ######################################################################
-## Load htseq count files
+## Load HTSeq count files
 
 counts <- c()
 for (i in samples[,2]){
@@ -62,83 +71,34 @@ tail(counts)
 # Remove genes with no counts (comment out if you want all genes)
 counts <- counts[rowSums(counts) != 0,]
 
-######################################################################
-## Get annotations from Ensembl Biomart
 
-if (biomart.dataset != "False") {
-  library(biomaRt)
-  mart <- useMart(biomart="ensembl", dataset=biomart.dataset)
-  attribute.list <- listAttributes(mart)[,1]
-  
-  # Find which attribute name to get gene symbols from
-  if ("hgnc_symbol" %in% attribute.list) {
-    symbol <- "hgnc_symbol"
-  } else if ("mgi_symbol" %in% attribute.list) {
-    symbol <- "mgi_symbol"
-  } else {
-    # If symbol is unspecified, use the external_gene_id attribute or 
-    # change it yourself by manually checking attribute list for your
-    # organism's dataset
-    symbol <- "external_gene_id"
-  }
-  sprintf("Using '%s' as symbol", symbol)
-  
-  # If you change the attributes, make sure there is only one entry per
-  # ensembl_gene_id. The first two items should always be "ensembl_gene_id"
-  # and symbol. If there is more than one entry per symbol, the first one 
-  # is used (therefore don't include GO Terms in attributes).
-  attributes <- c("ensembl_gene_id", symbol, "chromosome_name",
-                  "start_position", "gene_biotype", "entrezgene", 
-                  "description")
-  print(attributes)
-  annotations.raw <- getBM(attributes=attributes, mart=mart, verbose=T)
-  
-  # Remove duplicated entries
-  annotations <- annotations.raw[!(duplicated(
-                   annotations.raw$ensembl_gene_id)),]
-  #duplicated <- annotations.raw[duplicated(annotations.raw$ensembl_gene_id),]
-  
+######################################################################
+## Annotate counts matrix with Ensembl data
+
+if (annotate) {
   gene.list <- rownames(counts)
-  gene.list <- gene.list[gene.list %in% annotations$ensembl_gene_id]
-  annotations <- annotations[annotations$ensembl_gene_id %in% gene.list,]
-  rownames(annotations) <- annotations$ensembl_gene_id
-  annotations <- annotations[,-1]
+  gene.list <- gene.list[gene.list %in% rownames(annotations)]
   
   # Only include counts which have an entry in ensembl
   counts <- counts[gene.list,]
   annotations <- annotations[gene.list,]
-  
-  # Check if annotations data frame is empty
-  if (dim(annotations)[1] == 0) {
-    # exit with error
-    print("Error: annotation data frame is empty")
-    quit("no", 1, FALSE)
-  }
-  if (any(rownames(counts) != rownames(annotations))) {
-    print("Error: genes in counts and annotations don't match.")
-    quit("no", 1, FALSE)
-  }
-  
-} else {
-  annotations <- c()
 }
 
 
 ######################################################################
 ## Write to file
 
-rm(i)
-rm(args)
-
 # Save to .RData file
 save.image(rdata.counts)
 
 # Save to txt file
 # Add condition to sample names for columns in output file
-
 counts.output <- cbind(Feature=rownames(counts), counts, annotations)
 colnames(counts.output)[2:(dim(counts)[2]+1)] <- paste(sample.names,
                                                        condition, sep="_")
 write.table(counts.output, plain.text.counts, col.names=TRUE, 
             row.names=FALSE, quote=FALSE, sep="\t")
 
+
+proc.time()
+sessionInfo()

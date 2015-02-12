@@ -158,6 +158,11 @@ write_trimmomatic_log = False
 # R PARAMETERS
 #---------------------------------
 
+# Specify how HTSeq deals with reads which overlap more than one feature.
+# One of: "union", "intersection_strict", or "intersection_nonempty".
+# More info here: http://www-huber.embl.de/users/anders/HTSeq/doc/count.html
+htseq_mode = "union"
+
 # Get annotations from Ensembl BioMart. GTF file needs to use IDs from Ensembl. 
 # Set as False to skip annotation, else 
 # provide the name of the dataset that will be queried. Attributes to be
@@ -189,11 +194,11 @@ index_script = "scripts/build_index.sh"
 tophat_script = "scripts/run_tophat.sh"
 merge_tophat_script = "scripts/merge_tophat.sh"
 fix_tophat_unmapped_reads_script = "scripts/fix_tophat_unmapped_reads.py"
-htseq_script = "scripts/run_htseq.sh"
 fastqc_parse_script = "scripts/fastqc_parse.py"
 qc_parse_script = "scripts/qc_parse.py"
 alignment_stats_script = "scripts/alignment_stats.sh"
-combine_and_annotate_script = "scripts/combine_and_annotate.R"
+get_annotations_script = "scripts/get_annotations.R"
+combine_gene_counts_script = "scripts/combine_gene_counts.R"
 de_analysis_script = "scripts/de_analysis.R"
 
 

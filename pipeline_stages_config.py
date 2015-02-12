@@ -159,14 +159,20 @@ stages = {
                    "%alignment_stats_dir %rnaqc_dir %qc_summary %paired",
         "walltime": "10:00",
     },
-    "countReads": {
-        "command": "sh %htseq %bam %gene_ref %union %strict %stranded",
+    "countGeneReads": {
+        "command": "samtools view -h %bam | htseq-count --mode=%mode " \
+                   "--stranded=%stranded - %gtf > %output",
         "walltime": "5:00:00",
     },
-    "combineAndAnnotate": {
+    "getAnnotations": {
+        "command": "R --no-save --args %biomart %outdir < %annotate " \
+                   "> %stdout 2> %stderr",
+        "walltime": "30:00",
+    },
+    "combineGeneCounts": {
         "command": "R --no-save --args %samples %comparisons %plain_text " \
                    "%rdata %annotate < %combine > %stdout 2> %stderr",
-        "walltime": "30:00",
+        "walltime": "10:00",
     },
     "voom": {
         "command": "R --no-save --args %rdata %outdir %voom < %script " \
